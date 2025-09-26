@@ -1,5 +1,6 @@
 # Transcriber App (FastAPI + faster-whisper)
 
+<b>AI로 작성되었습니다.</b>
 간단한 파이썬 웹앱으로, 회의 음성 파일을 업로드하면 백그라운드로 텍스트로 변환하고
 완료되면 `.txt`/`.srt`로 다운로드할 수 있습니다.
 
