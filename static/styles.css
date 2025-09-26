@@ -37,7 +37,20 @@ h1 { margin: 0 0 8px 0; font-size: 28px; }
   cursor: pointer;
 }
 .dropzone.dragover { border-color: var(--accent); background: #11141a; }
+.dropzone.has-file { border-color: var(--accent); background: rgba(59, 130, 246, 0.12); }
 .dz-label { color: var(--muted); }
+.dropzone.has-file .dz-label { display: none; }
+.dz-file {
+  margin-top: 12px;
+  color: var(--text);
+  font-weight: 600;
+}
+.dz-file small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-weight: 400;
+}
 
 .btn {
   background: var(--accent);

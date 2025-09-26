@@ -1,46 +1,73 @@
 # Transcriber App (FastAPI + faster-whisper)
 
-<b>AI로 작성되었습니다.</b>
-간단한 파이썬 웹앱으로, 회의 음성 파일을 업로드하면 백그라운드로 텍스트로 변환하고
-완료되면 `.txt`/`.srt`로 다운로드할 수 있습니다.
+간단한 웹 인터페이스에서 오디오 파일을 업로드하면 백그라운드로 한국어 전사를 수행하고
+완료된 결과를 `.txt`, `.srt`, `.json`으로 내려받을 수 있습니다. 드래그앤드롭 드롭존에서
+파일명·용량을 즉시 확인할 수 있어 업로드 상태를 쉽게 파악할 수 있습니다.
 
-## 빠른 시작
+## 주요 특징
 
-1) **시스템 요구사항**
+- **한국어 특화 모델 기본 적용**: Hugging Face의 `ghost613/faster-whisper-large-v3-turbo-korean` 모델을 사용해 어색한 문장을 줄였습니다. 첫 실행 시 약 5GB 모델을 내려받습니다.
+- **자동 진행률 모니터링**: 업로드와 동시에 작업 카드가 생성되고 진행률·언어·모델 정보를 표시합니다.
+- **멀티 포맷 결과물**: 타임스탬프가 포함된 `transcript.txt`, `subtitles.srt`, `segments.json`을 생성합니다.
+- **한국어 강제 인식**: `WHISPER_LANGUAGE=ko`를 기본 적용해 언어 감지 오류를 최소화합니다.
+
+## 빠른 시작 (로컬 개발)
+
+1. **사전 요구사항**
    - Python 3.10+
-   - `ffmpeg` 설치 (Mac: `brew install ffmpeg`, Ubuntu: `apt-get install ffmpeg` 등)
-   - (선택) NVIDIA GPU가 있으면 속도 향상. CPU만으로도 동작함.
+   - `ffmpeg`
+   - (선택) NVIDIA GPU — 없는 경우 CPU로 자동 전환됩니다.
 
-2) **설치**
-```bash
-cd transcriber_app
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-```
+2. **설치**
+   ```bash
+   git clone https://github.com/haragu/audio2text-web.git
+   cd audio2text-web
+   python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-3) **환경 변수 (선택)**
-   - `WHISPER_MODEL`: 모델 크기 (`tiny`, `base`, `small`, `medium`, `large-v3` 등). 기본값: `small`
-   - `WHISPER_DEVICE`: `cuda` 또는 `cpu` (자동 감지 기본)
-   - `DATA_DIR`: 업로드/결과 저장 경로 (기본: `./data`)
+3. **환경 변수**
+   - `WHISPER_MODEL` (기본: `ghost613/faster-whisper-large-v3-turbo-korean`)
+   - `WHISPER_LANGUAGE` (기본: `ko`)
+   - `WHISPER_DEVICE` (`cuda`/`cpu`, 기본은 자동 감지)
+   - `DATA_DIR` (기본: `./data`)
 
-4) **실행**
-```bash
-uvicorn main:app --reload
-```
-웹 브라우저에서 http://127.0.0.1:8000 접속
+4. **실행**
+   ```bash
+   uvicorn main:app --reload
+   ```
+   브라우저에서 http://127.0.0.1:8000 접속 후 오디오 파일을 업로드합니다.
 
-## 기능
-- 업로드: MP3, WAV, M4A, OGG 등 주요 오디오 형식 허용
-- 백그라운드 변환: 업로드 즉시 큐잉되어 진행
-- 상태 확인: 진행률/상태를 폴링으로 조회
-- 다운로드: `.txt`(타임스탬프 포함/미포함) 및 `.srt` 자막 파일
-- 언어 자동 감지
+> ℹ️ 처음 실행할 때 Hugging Face 모델이 다운로드됩니다. 네트워크 속도에 따라 수 분이 걸릴 수 있으며, 모델 저장 공간으로 최소 6GB 이상을 확보하세요.
 
-## 한계 / 확장 포인트
-- 현재는 인메모리 잡 스토어(서버 재시작 시 휘발). 운영에서는 Redis/Celery 또는 DB 사용 권장.
-- 스피커 분리(화자 분할)는 포함하지 않았습니다. `whisperx`나 `pyannote.audio` 연동으로 확장 가능.
-- 큰 파일에 대해서는 리버스 프록시(nginx), 청크 업로드, 오브젝트 스토리지(S3/MinIO) 연동 권장.
-- 인증/권한(로그인)은 포함하지 않았습니다. 회사 내부망/역할 기반 접근 제어 필요시 미들웨어 추가.
+## Docker 사용
+
+1. Docker Desktop 또는 Docker Engine 28+ 설치
+2. (선택) 모델을 미리 내려받으려면 `docker compose build` 실행
+3. 서비스 실행
+   ```bash
+   docker compose up -d
+   ```
+4. 종료
+   ```bash
+   docker compose down
+   ```
+
+도커 환경에서도 `WHISPER_MODEL`, `WHISPER_LANGUAGE`, `DATA_DIR` 등은 `docker-compose.yml`의 `environment` 블록에서 변경할 수 있습니다.
+
+## 모델 변경 팁
+
+- 다국어가 필요하면 `WHISPER_MODEL=openai/whisper-large-v3` 등 기본 Whisper 체크포인트로 바꿀 수 있습니다.
+- 리소스가 부족한 경우 `WHISPER_MODEL=base` 또는 `small` 같은 경량 모델을 설정하세요.
+- Hugging Face의 private 모델을 사용할 때는 토큰이 필요하므로 컨테이너/환경에 `HF_HOME` 또는 토큰 파일을 미리 구성합니다.
+
+## 한계 및 로드맵
+
+- 화자 분리(diarization)는 지원하지 않습니다. `pyannote.audio` 또는 `whisperx` 연동으로 확장 가능합니다.
+- 현재는 인메모리 잡 스토어를 사용합니다. Redis가 연결되면 자동으로 사용하지만 지속성은 직접 관리해야 합니다.
+- 대용량 파일 업로드를 위해서는 프론트엔드 청크 업로드나 오브젝트 스토리지 연동을 검토하세요.
+- 인증이 없으므로 사내망 등 신뢰 가능한 네트워크에서 사용하거나 Reverse Proxy 레벨에서 접근 제어를 적용해야 합니다.
 
 ## 라이선스
-- 예시 코드이므로 필요에 맞게 수정/사용하세요.
+
+프로젝트 용도에 맞게 자유롭게 수정해 사용하세요.

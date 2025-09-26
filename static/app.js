@@ -2,8 +2,9 @@ const form = document.getElementById('upload-form');
 const fileInput = document.getElementById('file-input');
 const dropzone = document.getElementById('dropzone');
 const jobsContainer = document.getElementById('jobs');
-
-dropzone.addEventListener('click', () => fileInput.click());
+const fileInfo = document.getElementById('file-info');
+const submitBtn = form.querySelector('button');
+const defaultBtnText = submitBtn.textContent;
 
 dropzone.addEventListener('dragover', (e) => {
   e.preventDefault();
@@ -17,8 +18,11 @@ dropzone.addEventListener('drop', (e) => {
   dropzone.classList.remove('dragover');
   if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
     fileInput.files = e.dataTransfer.files;
+    updateFileInfo();
   }
 });
+
+fileInput.addEventListener('change', updateFileInfo);
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -26,19 +30,31 @@ form.addEventListener('submit', async (e) => {
 
   const fd = new FormData();
   fd.append('file', fileInput.files[0]);
-  const btn = form.querySelector('button');
-  btn.disabled = true;
+  submitBtn.disabled = true;
+  submitBtn.textContent = '업로드 중...';
 
   try {
     const res = await fetch('/api/upload', { method: 'POST', body: fd });
-    const data = await res.json();
+    const payloadText = await res.text();
+    let data;
+    try {
+      data = payloadText ? JSON.parse(payloadText) : null;
+    } catch {
+      data = null;
+    }
+    if (!res.ok || !data) {
+      const detail = data && data.detail ? data.detail : payloadText || '업로드에 실패했습니다.';
+      throw new Error(detail);
+    }
     addJobCard(data.job_id);
     pollJob(data.job_id);
   } catch (err) {
     alert('업로드 실패: ' + err.message);
   } finally {
-    btn.disabled = false;
+    submitBtn.disabled = false;
+    submitBtn.textContent = defaultBtnText;
     form.reset();
+    updateFileInfo();
   }
 });
 
@@ -88,3 +104,35 @@ async function pollJob(jobId) {
     }
   }, 1500);
 }
+
+function updateFileInfo() {
+  fileInfo.textContent = '';
+  if (fileInput.files && fileInput.files.length > 0) {
+    const file = fileInput.files[0];
+    dropzone.classList.add('has-file');
+    const title = document.createElement('div');
+    title.textContent = file.name;
+    fileInfo.appendChild(title);
+    const meta = document.createElement('small');
+    const typeLabel = file.type || '형식 미확인';
+    meta.textContent = `${formatBytes(file.size)} • ${typeLabel}`;
+    fileInfo.appendChild(meta);
+  } else {
+    dropzone.classList.remove('has-file');
+  }
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const fractionDigits = unit === 0 ? 0 : 1;
+  return `${value.toFixed(fractionDigits)} ${units[unit]}`;
+}
+
+updateFileInfo();

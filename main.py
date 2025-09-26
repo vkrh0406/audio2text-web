@@ -1,9 +1,12 @@
+import json
+import logging
 import os
 import uuid
 import time
 import math
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import TYPE_CHECKING, Optional, Dict, Any, List, Annotated
 
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
@@ -13,10 +16,15 @@ from fastapi.templating import Jinja2Templates
 # Lazy import for faster-whisper (loaded when first used)
 FW_AVAILABLE = True
 try:
-    import torch  # for device detection (optional)
     from faster_whisper import WhisperModel
 except Exception:
     FW_AVAILABLE = False
+    WhisperModel = None  # type: ignore
+
+try:
+    import torch  # optional GPU detection
+except Exception:  # torch 미설치 환경에서는 CPU로 강제
+    torch = None  # type: ignore
 
 APP_DIR = Path(__file__).parent.resolve()
 DATA_DIR = Path(os.getenv("DATA_DIR", APP_DIR / "data"))
@@ -28,8 +36,59 @@ app = FastAPI(title="Transcriber App", version="0.1.0")
 app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
-# Very small in-memory job store for MVP
+# Very small in-memory job store for MVP (fallback when Redis 미사용)
 JOBS: Dict[str, Dict[str, Any]] = {}
+EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("TRANSCRIBE_WORKERS", "2")))
+logger = logging.getLogger("audio2text")
+
+if TYPE_CHECKING:  # pragma: no cover - 타입 힌트 전용
+    from redis import Redis
+
+REDIS_CLIENT: Optional["Redis"] = None
+REDIS_URL = os.getenv("REDIS_URL")
+if REDIS_URL:
+    try:
+        import redis  # type: ignore
+
+        REDIS_CLIENT = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+        REDIS_CLIENT.ping()
+    except Exception as exc:  # Redis 연결 실패 시 메모리 사용
+        logger.warning("Redis 연결 실패(%s). 메모리 저장소로 대체합니다.", exc)
+        REDIS_CLIENT = None
+else:
+    logger.debug("REDIS_URL 미설정. 메모리 저장소 사용")
+
+
+def job_key(job_id: str) -> str:
+    return f"jobs:{job_id}"
+
+
+def save_job(job_id: str, job: Dict[str, Any]) -> None:
+    if REDIS_CLIENT:
+        REDIS_CLIENT.set(job_key(job_id), json.dumps(job, ensure_ascii=False))
+    else:
+        JOBS[job_id] = job
+
+
+def load_job(job_id: str) -> Optional[Dict[str, Any]]:
+    if REDIS_CLIENT:
+        raw = REDIS_CLIENT.get(job_key(job_id))
+        if raw is None:
+            return None
+        return json.loads(raw)
+    return JOBS.get(job_id)
+
+
+def delete_job(job_id: str) -> None:
+    if REDIS_CLIENT:
+        REDIS_CLIENT.delete(job_key(job_id))
+    else:
+        JOBS.pop(job_id, None)
+
+
+def enqueue_transcription(job_id: str) -> None:
+    """Submit heavy transcription work to the worker pool."""
+    EXECUTOR.submit(run_transcription_job, job_id)
 
 def srt_timestamp(seconds: float) -> str:
     if seconds is None or math.isnan(seconds):
@@ -67,7 +126,10 @@ def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...), background: BackgroundTasks = None):
+async def upload(
+    file: Annotated[UploadFile, File()],
+    background_tasks: BackgroundTasks,
+):
     ext = Path(file.filename).suffix.lower()
     if ext not in ALLOWED_EXTS:
         raise HTTPException(status_code=400, detail=f"허용되지 않는 확장자: {ext}")
@@ -83,26 +145,27 @@ async def upload(file: UploadFile = File(...), background: BackgroundTasks = Non
                 break
             f.write(chunk)
 
-    JOBS[job_id] = {
+    job_language = os.getenv("WHISPER_LANGUAGE") or "ko"
+
+    job_data = {
         "status": "queued",
         "progress": 0.0,
         "audio_path": str(audio_path),
         "created_at": time.time(),
         "model": None,
-        "language": None,
+        "language": job_language,
         "error": None,
         "segments": [],
         "outputs": {},
     }
+    save_job(job_id, job_data)
 
-    if background is None:
-        background = BackgroundTasks()
-    background.add_task(run_transcription_job, job_id)
-    return JSONResponse({"job_id": job_id})
+    background_tasks.add_task(enqueue_transcription, job_id)
+    return {"job_id": job_id}
 
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str):
-    job = JOBS.get(job_id)
+    job = load_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="존재하지 않는 작업")
     resp = {
@@ -116,7 +179,7 @@ def job_status(job_id: str):
 
 @app.get("/api/jobs/{job_id}/download")
 def job_download(job_id: str, format: str = "txt"):
-    job = JOBS.get(job_id)
+    job = load_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="존재하지 않는 작업")
     if job["status"] != "done":
@@ -135,38 +198,50 @@ def job_download(job_id: str, format: str = "txt"):
 def load_model():
     if not FW_AVAILABLE:
         raise RuntimeError("faster-whisper 가 설치되지 않았습니다. requirements.txt 를 확인하세요.")
-    model_size = os.getenv("WHISPER_MODEL", "small")
+    model_size = os.getenv("WHISPER_MODEL", "ghost613/faster-whisper-large-v3-turbo-korean")
     device = os.getenv("WHISPER_DEVICE")
     if device not in ("cpu", "cuda"):
-        # auto detect
-        try:
-            device = "cuda" if torch.cuda.is_available() else "cpu"  # type: ignore
-        except Exception:
+        # auto detect (torch 미설치 시 CPU)
+        if torch is not None:
+            try:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            except Exception:
+                device = "cpu"
+        else:
             device = "cpu"
     compute_type = "float16" if device == "cuda" else "int8"
     model = WhisperModel(model_size, device=device, compute_type=compute_type)
     return model, model_size, device
 
 def run_transcription_job(job_id: str):
-    job = JOBS.get(job_id)
+    job = load_job(job_id)
     if not job:
+        logger.warning("작업 %s 를 찾을 수 없어 변환을 건너뜁니다.", job_id)
         return
     try:
         job["status"] = "processing"
         job["progress"] = 0.05
+        save_job(job_id, job)
 
         model, model_size, device = load_model()
-        job["model"] = f"faster-whisper/{model_size} ({device})"
+        job["model"] = f"{model_size} ({device})"
+        save_job(job_id, job)
 
         audio_path = job["audio_path"]
         # Transcribe
+        forced_language = os.getenv("WHISPER_LANGUAGE") or "ko"
+        job["language"] = forced_language
+        save_job(job_id, job)
+
         segments_iter, info = model.transcribe(
             audio_path,
             beam_size=5,
             vad_filter=True,
-            language=None,  # auto detect
+            language=forced_language,
         )
-        job["language"] = info.language
+        info_language = getattr(info, "language", forced_language)
+        job["language"] = info_language or forced_language
+        save_job(job_id, job)
 
         # Collect segments with progress updates
         segments: List[Dict[str, Any]] = []
@@ -182,6 +257,7 @@ def run_transcription_job(job_id: str):
             if time.time() - last_update > 0.3:
                 job["progress"] = min(0.95, job["progress"] + 0.02)
                 last_update = time.time()
+                save_job(job_id, job)
 
         # Write outputs
         out_txt = Path(audio_path).with_name("transcript.txt")
@@ -189,13 +265,15 @@ def run_transcription_job(job_id: str):
         out_json = Path(audio_path).with_name("segments.json")
         write_txt(segments, out_txt, with_timestamps=True)
         write_srt(segments, out_srt)
-        out_json.write_text(__import__("json").dumps({"language": info.language, "segments": segments}, ensure_ascii=False, indent=2), encoding="utf-8")
+        out_json.write_text(__import__("json").dumps({"language": info_language or forced_language, "segments": segments}, ensure_ascii=False, indent=2), encoding="utf-8")
 
         job["segments"] = segments
         job["outputs"] = {"txt": str(out_txt), "srt": str(out_srt), "json": str(out_json)}
         job["progress"] = 1.0
         job["status"] = "done"
+        save_job(job_id, job)
     except Exception as e:
         job["status"] = "error"
         job["error"] = str(e)
         job["progress"] = 1.0
+        save_job(job_id, job)

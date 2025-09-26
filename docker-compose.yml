@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    container_name: audio2text-app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATA_DIR=/data
+      - REDIS_URL=redis://redis:6379/0
+      - TRANSCRIBE_WORKERS=2
+      - WHISPER_MODEL=ghost613/faster-whisper-large-v3-turbo-korean
+      - WHISPER_LANGUAGE=ko
+    volumes:
+      - ./:/app
+      - data-volume:/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: audio2text-redis
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  data-volume:
+  redis-data:
