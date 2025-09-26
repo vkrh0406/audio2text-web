@@ -1,5 +1,7 @@
 # Transcriber App (FastAPI + faster-whisper)
 
+[🇰🇷 한국어](README.md) · [🇺🇸 English](README.en.md)
+
 간단한 웹 인터페이스에서 오디오 파일을 업로드하면 백그라운드로 한국어 전사를 수행하고
 완료된 결과를 `.txt`, `.srt`, `.json`으로 내려받을 수 있습니다. 드래그앤드롭 드롭존에서
 파일명·용량을 즉시 확인할 수 있어 업로드 상태를 쉽게 파악할 수 있습니다.
