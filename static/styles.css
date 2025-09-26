@@ -1,0 +1,70 @@
+:root {
+  --bg: #0b0c10;
+  --panel: #16181d;
+  --text: #e6e6e6;
+  --muted: #b4b9c3;
+  --accent: #3b82f6;
+  --accent-2: #22c55e;
+  --danger: #ef4444;
+  --border: #262a33;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;
+  background: radial-gradient(1200px 800px at 10% -10%, #1a1e26, #0b0c10 60%);
+  color: var(--text);
+}
+
+.container {
+  max-width: 860px;
+  margin: 48px auto;
+  padding: 0 20px;
+}
+
+h1 { margin: 0 0 8px 0; font-size: 28px; }
+.sub { margin-top: 0; color: var(--muted); }
+
+.dropzone {
+  border: 1px dashed var(--border);
+  background: var(--panel);
+  padding: 36px;
+  border-radius: 12px;
+  text-align: center;
+  display: block;
+  margin: 16px 0;
+  cursor: pointer;
+}
+.dropzone.dragover { border-color: var(--accent); background: #11141a; }
+.dz-label { color: var(--muted); }
+
+.btn {
+  background: var(--accent);
+  border: 0; border-radius: 10px;
+  padding: 10px 16px; color: white; font-weight: 600;
+  cursor: pointer;
+}
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.job-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 16px 0;
+  background: #11141a;
+}
+.job-header {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.job-meta { color: var(--muted); font-size: 14px; }
+.progress {
+  width: 100%; height: 10px; border-radius: 999px; background: #0d1016; border: 1px solid var(--border);
+  overflow: hidden; margin-top: 12px;
+}
+.progress > div {
+  height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.3s ease;
+}
+.links a { margin-right: 12px; }
+.error { color: var(--danger); }

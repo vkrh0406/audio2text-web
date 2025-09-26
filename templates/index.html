@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>회의 녹음 → 텍스트 변환</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>회의 녹음 → 텍스트 변환</h1>
+    <p class="sub">오디오 파일을 업로드하면 백그라운드에서 변환하고, 완료되면 결과를 다운로드할 수 있습니다.</p>
+
+    <form id="upload-form">
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="file-input" name="file" accept="audio/*" hidden />
+        <div class="dz-label">
+          <strong>여기에 파일을 끌어다 놓거나</strong><br/>
+          클릭해서 선택하세요 (mp3, wav, m4a, ogg…)
+        </div>
+      </label>
+      <button type="submit" class="btn">업로드</button>
+    </form>
+
+    <div id="jobs"></div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
